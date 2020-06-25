@@ -104,11 +104,11 @@ remoteSchemaObject schemaDoc defn@(G.ObjectTypeDefinition description name inter
   P.memoizeOn 'remoteSchemaObject defn do
   subFieldParsers <- traverse (remoteField' schemaDoc) subFields
   implements <- traverse (remoteSchemaInterface schemaDoc) $ catMaybes (map (lookupInterface schemaDoc) interfaces)
-  pure $ () <$ P.selectionSetObject name description subFieldParsers implements
+  pure $ () <$ P.selectionSetObject (_unsafeCoerceName name) description subFieldParsers implements
 
 objectsImplementingInterface
   :: SchemaDocument
-  -> G.Name
+  -> G.Name' G.InterfaceTypeDefinition
   -> [G.ObjectTypeDefinition]
 objectsImplementingInterface (SchemaDocument tps) interfaceName = catMaybes $ fmap go tps
   where
@@ -119,7 +119,7 @@ objectsImplementingInterface (SchemaDocument tps) interfaceName = catMaybes $ fm
 
 interfaceImplementingInterface
   :: SchemaDocument
-  -> G.Name
+  -> G.Name' G.InterfaceTypeDefinition
   -> [G.InterfaceTypeDefinition]
 interfaceImplementingInterface (SchemaDocument tps) interfaceName = catMaybes $ fmap go tps
   where
@@ -142,7 +142,7 @@ remoteSchemaInterface schemaDoc defn@(G.InterfaceTypeDefinition description name
     objectsImplementingInterface schemaDoc name
   ifaces :: [Parser 'Output n ()] <- traverse (remoteSchemaInterface schemaDoc) $
     interfaceImplementingInterface schemaDoc name
-  pure $ () <$ (P.selectionSetInterface name description subFieldParsers objs ifaces)
+  pure $ () <$ (P.selectionSetInterface (_unsafeCoerceName name) description subFieldParsers objs ifaces)
 
 -- | 'remoteSchemaUnion' returns a output parser for a given 'UnionTypeDefinition'.
 remoteSchemaUnion
@@ -155,7 +155,7 @@ remoteSchemaUnion schemaDoc defn@(G.UnionTypeDefinition description name _direct
   P.memoizeOn 'remoteSchemaObject defn do
   objs :: [Parser 'Output n ()] <- traverse (remoteSchemaObject schemaDoc) $
     catMaybes $ map (lookupObject schemaDoc) objectNames
-  pure $ () <$ (P.selectionSetUnion name description objs)
+  pure $ () <$ (P.selectionSetUnion (_unsafeCoerceName name) description objs)
 
 -- | remoteSchemaInputObject returns an input parser for a given 'G.InputObjectTypeDefinition'
 remoteSchemaInputObject
@@ -167,21 +167,21 @@ remoteSchemaInputObject
 remoteSchemaInputObject schemaDoc defn@(G.InputObjectTypeDefinition desc name _ valueDefns) =
   P.memoizeOn 'remoteSchemaInputObject defn do
   argsParser <- argumentsParser valueDefns schemaDoc
-  pure $ P.object name desc argsParser
+  pure $ P.object (_unsafeCoerceName name) desc argsParser
 
 lookupType :: SchemaDocument -> G.Name -> Maybe G.TypeDefinition
 lookupType (SchemaDocument types) name = find (\tp -> getNamedTyp tp == name) types
   where
     getNamedTyp :: G.TypeDefinition -> G.Name
     getNamedTyp ty = case ty of
-      G.TypeDefinitionScalar t      -> G._stdName t
-      G.TypeDefinitionObject t      -> G._otdName t
-      G.TypeDefinitionInterface t   -> G._itdName t
-      G.TypeDefinitionUnion t       -> G._utdName t
-      G.TypeDefinitionEnum t        -> G._etdName t
-      G.TypeDefinitionInputObject t -> G._iotdName t
+      G.TypeDefinitionScalar t      -> _unsafeCoerceName G._stdName t
+      G.TypeDefinitionObject t      -> _unsafeCoerceName G._otdName t
+      G.TypeDefinitionInterface t   -> _unsafeCoerceName G._itdName t
+      G.TypeDefinitionUnion t       -> _unsafeCoerceName G._utdName t
+      G.TypeDefinitionEnum t        -> _unsafeCoerceName G._etdName t
+      G.TypeDefinitionInputObject t -> _unsafeCoerceName G._iotdName t
 
-lookupObject :: SchemaDocument -> G.Name -> Maybe G.ObjectTypeDefinition
+lookupObject :: SchemaDocument -> G.Name' G.ObjectTypeDefinition -> Maybe G.ObjectTypeDefinition
 lookupObject (SchemaDocument types) name = go types
   where
     go :: [TypeDefinition] -> Maybe G.ObjectTypeDefinition
@@ -190,7 +190,7 @@ lookupObject (SchemaDocument types) name = go types
       | otherwise = go tps
     go _ = Nothing
 
-lookupInterface :: SchemaDocument -> G.Name -> Maybe G.InterfaceTypeDefinition
+lookupInterface :: SchemaDocument -> G.Name' G.InterfaceTypeDefinition -> Maybe G.InterfaceTypeDefinition
 lookupInterface (SchemaDocument types) name = go types
   where
     go :: [TypeDefinition] -> Maybe G.InterfaceTypeDefinition
@@ -205,7 +205,7 @@ remoteFieldFromName
   :: forall n m
    . (MonadSchema n m, MonadError QErr m)
   => SchemaDocument
-  -> G.Name
+  -> G.Name' G.FieldDefinition
   -> G.Name
   -> G.ArgumentsDefinition
   -> m (FieldParser n ())
@@ -247,7 +247,7 @@ inputValueDefinitionParser schemaDoc (G.InputValueDefinition desc name fieldType
              case typeDef of
                G.TypeDefinitionScalar (G.ScalarTypeDefinition _ name' _) ->
                  fieldConstructor' <$> remoteFieldScalarParser name'
-               G.TypeDefinitionEnum defn -> pure $ fieldConstructor' $ remoteFieldEnumParser typeName defn
+               G.TypeDefinitionEnum defn -> pure $ fieldConstructor' $ remoteFieldEnumParser defn
                G.TypeDefinitionObject _ -> throw500 $ "expected input type, but got output type" -- couldn't find the equivalent error in Validate/Types.hs, so using a new error message
                G.TypeDefinitionInputObject defn ->
                  pure . fieldConstructor' =<< remoteSchemaInputObject schemaDoc defn
@@ -272,7 +272,7 @@ remoteField
   :: forall n m
    . (MonadSchema n m, MonadError QErr m)
   => SchemaDocument
-  -> G.Name
+  -> G.Name' G.FieldDefinition
   -> G.ArgumentsDefinition
   -> G.TypeDefinition
   -> m (FieldParser n ()) -- TODO return something useful, maybe?
@@ -282,23 +282,25 @@ remoteField sdoc fieldName argsDefn typeDefn = do
   case typeDefn of
     G.TypeDefinitionObject objTypeDefn -> do
       remoteSchemaObj <- remoteSchemaObject sdoc objTypeDefn
-      pure $ () <$ P.subselection fieldName (G._otdDescription objTypeDefn) argsParser remoteSchemaObj
+      pure $ () <$ P.subselection fieldName' (G._otdDescription objTypeDefn) argsParser remoteSchemaObj
     G.TypeDefinitionScalar (G.ScalarTypeDefinition desc name' _) ->
-      P.selection fieldName desc argsParser <$> remoteFieldScalarParser name'
+      P.selection fieldName' desc argsParser <$> remoteFieldScalarParser name'
     G.TypeDefinitionEnum enumTypeDefn@(G.EnumTypeDefinition desc _ _ _) ->
-      pure $ P.selection fieldName desc argsParser $ remoteFieldEnumParser fieldName enumTypeDefn
+      pure $ P.selection fieldName' desc argsParser $ remoteFieldEnumParser enumTypeDefn
     G.TypeDefinitionInterface ifaceTypeDefn -> do
       remoteSchemaObj <- remoteSchemaInterface sdoc ifaceTypeDefn
-      pure $ () <$ P.subselection fieldName (G._itdDescription ifaceTypeDefn) argsParser remoteSchemaObj
+      pure $ () <$ P.subselection fieldName' (G._itdDescription ifaceTypeDefn) argsParser remoteSchemaObj
     G.TypeDefinitionUnion unionTypeDefn -> do
       remoteSchemaObj <- remoteSchemaUnion sdoc unionTypeDefn
-      pure $ () <$ P.subselection fieldName (G._utdDescription unionTypeDefn) argsParser remoteSchemaObj
+      pure $ () <$ P.subselection fieldName' (G._utdDescription unionTypeDefn) argsParser remoteSchemaObj
     _ -> throw500 $ "expected output type, but got input type"
+    where
+      fieldName' = _unsafeCoerceName fieldName
 
 remoteFieldScalarParser
   :: forall m n
    . (MonadParse n, MonadError QErr m)
-  => G.Name
+  => G.Name' G.ScalarTypeDefinition
   -> m (Parser 'Both n ())
 remoteFieldScalarParser name =
   case G.unName name of
@@ -309,15 +311,14 @@ remoteFieldScalarParser name =
     -- TODO IDs are allowed to be numbers, I think. But not floats. See
     -- http://spec.graphql.org/draft/#sec-ID
     "ID" -> pure $ P.string $> ()
-    name' -> pure $ P.unsafeRawScalar name Nothing $> () -- TODO pass correct description
+    name' -> pure $ P.unsafeRawScalar (_unsafeCoerceName name) Nothing $> () -- TODO pass correct description
 
 remoteFieldEnumParser
   :: MonadParse n
-  => G.Name
-  -> G.EnumTypeDefinition
+  => G.EnumTypeDefinition
   -> Parser 'Both n ()
-remoteFieldEnumParser name (G.EnumTypeDefinition desc _ _ valueDefns) =
+remoteFieldEnumParser (G.EnumTypeDefinition desc name _ valueDefns) =
   let enumValDefns = map (\(G.EnumValueDefinition enumDesc enumName _) ->
                             ((mkDefinition (G.unEnumValue enumName) enumDesc P.EnumValueInfo),()))
                          $ valueDefns
-  in P.enum name desc $ NE.fromList enumValDefns
+  in P.enum (_unsafeCoerceName name) desc $ NE.fromList enumValDefns
