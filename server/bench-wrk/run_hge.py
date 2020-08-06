@@ -178,7 +178,7 @@ class HGE:
             print(Fore.YELLOW + "Stopping graphql engine at port:", self.port, Style.RESET_ALL)
 
             pgrp = os.getpgid(self.proc.pid)
-            os.killpg(pgrp, signal.SIGTERM) 
+            os.killpg(pgrp, signal.SIGTERM)
             # NOTE this doesn't seem to work, although a SIGINT from terminal does ...
             # self.proc.send_signal(signal.SIGINT)
             self.proc.wait()
@@ -303,6 +303,8 @@ class HGE:
             if not 'id' in table_cols:
                 continue
             rel_name = 'remote_' + inflection.singularize(t) + '_via_' + c
+            if not rel_name in []:
+                continue
             query ={
                 'type': 'create_remote_relationship',
                 'args' : {
@@ -344,6 +346,8 @@ class HGE:
             if c.endswith('_id'):
                 rel_name = c[:-3]
             rel_name = 'remote_' + rel_name
+            if not rel_name in []:
+                continue
             query ={
                 'type': 'create_remote_relationship',
                 'args' : {
@@ -398,6 +402,8 @@ class HGE:
         fk_constrnts = self.pg.get_all_fk_constraints(tables_schema)
         for (_, _, t, c, fs, ft, _) in fk_constrnts:
             rel_name = 'remote_' + inflection.pluralize(t) + '_by_' + c
+            if not rel_name in ['remote_addresses_by_location_id']:
+                continue
             query ={
                 'type': 'create_remote_relationship',
                 'args' : {
