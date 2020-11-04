@@ -10,7 +10,7 @@ import           Hasura.Eventing.ScheduledTrigger.Types
 import           Hasura.Prelude
 import           Hasura.RQL.Types
 
-import           Control.Monad.Morph                    (MFunctor, hoist)
+import           Control.Monad.Morph                    (MFunctor)
 
 import qualified Hasura.Tracing                         as Tracing
 
@@ -21,6 +21,7 @@ newtype MetadataStorageT m a
            , MFunctor
            , MonadTrans
            , MonadIO
+           , Tracing.HasReporter
            )
 
 runMetadataStorageT
@@ -29,56 +30,56 @@ runMetadataStorageT =
   runExceptT . unMetadataStorageT
 
 
-class (Monad m) => MonadMetadataStorage m where
+class (MonadError QErr m) => MonadMetadataStorage m where
 
   -- Scheduled triggers
-  getDeprivedCronTriggerStats :: MetadataStorageT m [CronTriggerStats]
-  getScheduledEventsForDelivery :: MetadataStorageT m ([CronEvent], [OneOffScheduledEvent])
-  insertScheduledEvent :: ScheduledEventSeed -> MetadataStorageT m ()
+  getDeprivedCronTriggerStats :: m [CronTriggerStats]
+  getScheduledEventsForDelivery :: m ([CronEvent], [OneOffScheduledEvent])
+  insertScheduledEvent :: ScheduledEventSeed -> m ()
   insertScheduledEventInvocation
-    :: Invocation 'ScheduledType -> ScheduledEventType -> MetadataStorageT m ()
+    :: Invocation 'ScheduledType -> ScheduledEventType -> m ()
   setScheduledEventOp
-    :: ScheduledEventId -> ScheduledEventOp -> ScheduledEventType -> MetadataStorageT m ()
+    :: ScheduledEventId -> ScheduledEventOp -> ScheduledEventType -> m ()
   unlockScheduledEvents
-    :: ScheduledEventType -> [ScheduledEventId] -> MetadataStorageT m Int
-  unlockAllLockedScheduledEvents :: MetadataStorageT m ()
+    :: ScheduledEventType -> [ScheduledEventId] -> m Int
+  unlockAllLockedScheduledEvents :: m ()
 
 instance (MonadMetadataStorage m) => MonadMetadataStorage (ReaderT r m) where
 
-  getDeprivedCronTriggerStats        = (hoist lift) getDeprivedCronTriggerStats
-  getScheduledEventsForDelivery      = (hoist lift) getScheduledEventsForDelivery
-  insertScheduledEvent               = (hoist lift) . insertScheduledEvent
-  insertScheduledEventInvocation a b = (hoist lift) $ insertScheduledEventInvocation a b
-  setScheduledEventOp a b c          = (hoist lift) $ setScheduledEventOp a b c
-  unlockScheduledEvents a b          = (hoist lift) $ unlockScheduledEvents a b
-  unlockAllLockedScheduledEvents     = (hoist lift) unlockAllLockedScheduledEvents
+  getDeprivedCronTriggerStats        = lift getDeprivedCronTriggerStats
+  getScheduledEventsForDelivery      = lift getScheduledEventsForDelivery
+  insertScheduledEvent               = lift . insertScheduledEvent
+  insertScheduledEventInvocation a b = lift $ insertScheduledEventInvocation a b
+  setScheduledEventOp a b c          = lift $ setScheduledEventOp a b c
+  unlockScheduledEvents a b          = lift $ unlockScheduledEvents a b
+  unlockAllLockedScheduledEvents     = lift unlockAllLockedScheduledEvents
 
-instance (MonadMetadataStorage m) => MonadMetadataStorage (ExceptT e m) where
+-- instance (MonadMetadataStorage m) => MonadMetadataStorage (ExceptT e m) where
 
-  getDeprivedCronTriggerStats        = (hoist lift) getDeprivedCronTriggerStats
-  getScheduledEventsForDelivery      = (hoist lift) getScheduledEventsForDelivery
-  insertScheduledEvent               = (hoist lift) . insertScheduledEvent
-  insertScheduledEventInvocation a b = (hoist lift) $ insertScheduledEventInvocation a b
-  setScheduledEventOp a b c          = (hoist lift) $ setScheduledEventOp a b c
-  unlockScheduledEvents a b          = (hoist lift) $ unlockScheduledEvents a b
-  unlockAllLockedScheduledEvents     = (hoist lift) unlockAllLockedScheduledEvents
+--   getDeprivedCronTriggerStats        = lift getDeprivedCronTriggerStats
+--   getScheduledEventsForDelivery      = lift getScheduledEventsForDelivery
+--   insertScheduledEvent               = lift . insertScheduledEvent
+--   insertScheduledEventInvocation a b = lift $ insertScheduledEventInvocation a b
+--   setScheduledEventOp a b c          = lift $ setScheduledEventOp a b c
+--   unlockScheduledEvents a b          = lift $ unlockScheduledEvents a b
+--   unlockAllLockedScheduledEvents     = lift unlockAllLockedScheduledEvents
 
 instance (MonadMetadataStorage m) => MonadMetadataStorage (Tracing.TraceT m) where
 
-  getDeprivedCronTriggerStats        = (hoist lift) getDeprivedCronTriggerStats
-  getScheduledEventsForDelivery      = (hoist lift) getScheduledEventsForDelivery
-  insertScheduledEvent               = (hoist lift) . insertScheduledEvent
-  insertScheduledEventInvocation a b = (hoist lift) $ insertScheduledEventInvocation a b
-  setScheduledEventOp a b c          = (hoist lift) $ setScheduledEventOp a b c
-  unlockScheduledEvents a b          = (hoist lift) $ unlockScheduledEvents a b
-  unlockAllLockedScheduledEvents     = (hoist lift) unlockAllLockedScheduledEvents
+  getDeprivedCronTriggerStats        = lift getDeprivedCronTriggerStats
+  getScheduledEventsForDelivery      = lift getScheduledEventsForDelivery
+  insertScheduledEvent               = lift . insertScheduledEvent
+  insertScheduledEventInvocation a b = lift $ insertScheduledEventInvocation a b
+  setScheduledEventOp a b c          = lift $ setScheduledEventOp a b c
+  unlockScheduledEvents a b          = lift $ unlockScheduledEvents a b
+  unlockAllLockedScheduledEvents     = lift unlockAllLockedScheduledEvents
 
-instance (MonadMetadataStorage m) => MonadMetadataStorage (LazyTxT e m) where
+-- instance (MonadMetadataStorage m) => MonadMetadataStorage (LazyTxT e m) where
 
-  getDeprivedCronTriggerStats        = (hoist lift) getDeprivedCronTriggerStats
-  getScheduledEventsForDelivery      = (hoist lift) getScheduledEventsForDelivery
-  insertScheduledEvent               = (hoist lift) . insertScheduledEvent
-  insertScheduledEventInvocation a b = (hoist lift) $ insertScheduledEventInvocation a b
-  setScheduledEventOp a b c          = (hoist lift) $ setScheduledEventOp a b c
-  unlockScheduledEvents a b          = (hoist lift) $ unlockScheduledEvents a b
-  unlockAllLockedScheduledEvents     = (hoist lift) unlockAllLockedScheduledEvents
+--   getDeprivedCronTriggerStats        = lift getDeprivedCronTriggerStats
+--   getScheduledEventsForDelivery      = lift getScheduledEventsForDelivery
+--   insertScheduledEvent               = lift . insertScheduledEvent
+--   insertScheduledEventInvocation a b = lift $ insertScheduledEventInvocation a b
+--   setScheduledEventOp a b c          = lift $ setScheduledEventOp a b c
+--   unlockScheduledEvents a b          = lift $ unlockScheduledEvents a b
+--   unlockAllLockedScheduledEvents     = lift unlockAllLockedScheduledEvents
